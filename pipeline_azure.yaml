@@ -1,0 +1,94 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  buildConfiguration: 'Release'
+  azureSubscription: 'YOUR-AZURE-SERVICE-CONNECTION'
+  appName: 'YOUR-APP-SERVICE-NAME'
+
+stages:
+
+# =========================
+# CI - Build & Test
+# =========================
+- stage: Build
+  displayName: 'Build and Test'
+
+  jobs:
+  - job: Build
+    displayName: 'Build Application'
+
+    steps:
+
+    - checkout: self
+
+    # Install dependencies
+    - script: |
+        echo "Installing dependencies..."
+        npm install
+      displayName: 'Install Dependencies'
+
+    # Run tests
+    - script: |
+        echo "Running tests..."
+        npm test
+      displayName: 'Run Tests'
+
+    # Build application
+    - script: |
+        echo "Building application..."
+        npm run build
+      displayName: 'Build Application'
+
+    # Publish build artifact
+    - task: ArchiveFiles@2
+      displayName: 'Create Deployment Package'
+      inputs:
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/app.zip'
+        replaceExistingArchive: true
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifact'
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)/app.zip'
+        artifactName: 'drop'
+
+
+# =========================
+# CD - Deploy
+# =========================
+- stage: Deploy
+  displayName: 'Deploy to Azure'
+  dependsOn: Build
+  condition: succeeded()
+
+  jobs:
+  - deployment: DeployToAzure
+    displayName: 'Deploy to Azure App Service'
+
+    environment: 'production'
+
+    strategy:
+      runOnce:
+        deploy:
+
+          steps:
+
+          - download: current
+            artifact: drop
+
+          - task: AzureWebApp@1
+            displayName: 'Deploy to Azure App Service'
+            inputs:
+              azureSubscription: '$(ca87634b-6f5b-404e-a749-f3bc1723f59d)'
+              appType: 'webAppLinux'
+              appName: '$(appName)'
+              package: '$(Pipeline.Workspace)/drop/app.zip'
